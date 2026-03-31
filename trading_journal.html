@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Journal</title>
+<style>
+body { font-family: Arial; background:#0f172a; color:white; padding:20px; }
+h1 { text-align:center; }
+.card { background:#1e293b; padding:15px; border-radius:12px; margin-bottom:15px; }
+input, select, button, textarea { width:100%; padding:10px; margin-top:8px; border-radius:8px; border:none; }
+button { background:#38bdf8; cursor:pointer; }
+ul { list-style:none; padding-left:0; }
+.win { color:#22c55e; font-weight:bold; }
+.loss { color:#ef4444; font-weight:bold; }
+.session { background:#334155; padding:10px; border-radius:10px; margin-bottom:10px; }
+.delete-day { background:#ef4444; margin-top:5px; }
+pre { margin:0; }
+</style>
+</head>
+<body>
+<h1>Trading Journal</h1>
+
+<div class="card">
+<h3>Add Trade</h3>
+<select id="strategy">
+  <option>QM</option>
+  <option>Third Touch Breakout</option>
+  <option>Decision Point</option>
+  <option>Common Point of Rejection</option>
+  <option>Doji Break</option>
+  <option>Price Range</option>
+</select>
+
+<select id="result">
+  <option value="win">Win</option>
+  <option value="loss">Loss</option>
+</select>
+
+<textarea id="reason" placeholder="Reason for trade..."></textarea>
+
+<select id="rulesFollowed">
+  <option value="yes">Followed Rules</option>
+  <option value="no">Did NOT Follow Rules</option>
+</select>
+
+<button onclick="addTrade()">Add Trade</button>
+</div>
+
+<div class="card">
+<h3>Strategy Performance (All Time)</h3>
+<pre id="strategyStatsAll"></pre>
+</div>
+
+<div class="card">
+<h3>Stats</h3>
+<p id="stats"></p>
+</div>
+
+<div class="card">
+<h3>Trades by Day</h3>
+<div id="sessions"></div>
+</div>
+
+<script>
+let allSessions = JSON.parse(localStorage.getItem('allSessions')) || {};
+
+function getTodayKey() {
+  const now = new Date();
+  return now.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
+function addTrade() {
+  const today = getTodayKey();
+  if (!allSessions[today]) allSessions[today] = [];
+  let trades = allSessions[today];
+
+  if (trades.length >= 6) { alert('Max 6 trades reached today!'); return; }
+
+  // Check streaks
+  let wins = 0, losses = 0;
+  for(let i=trades.length-1;i>=0;i--){
+    if(trades[i].result==='win') wins++; else break;
+  }
+  for(let i=trades.length-1;i>=0;i--){
+    if(trades[i].result==='loss') losses++; else break;
+  }
+  if(wins>=3){ alert('3 wins in a row. Stop trading!'); return; }
+  if(losses>=2){ alert('2 losses in a row. Stop trading!'); return; }
+
+  let trade = {
+    strategy: document.getElementById('strategy').value,
+    result: document.getElementById('result').value,
+    reason: document.getElementById('reason').value,
+    rules: document.getElementById('rulesFollowed').value,
+    date: new Date().toLocaleTimeString()
+  };
+
+  trades.push(trade);
+  allSessions[today] = trades;
+  localStorage.setItem('allSessions', JSON.stringify(allSessions));
+  document.getElementById('reason').value = '';
+  render();
+}
+
+function deleteSession(dayKey) {
+  if(confirm('Delete all trades for ' + dayKey + '?')) {
+    delete allSessions[dayKey];
+    localStorage.setItem('allSessions', JSON.stringify(allSessions));
+    render();
+  }
+}
+
+function render() {
+  const sessionsDiv = document.getElementById('sessions');
+  sessionsDiv.innerHTML = '';
+  let totalWins = 0, totalLosses = 0;
+
+  // Cumulative strategy stats across all days
+  let cumulativeStats = {};
+
+  for (let day in allSessions) {
+    let sessionDiv = document.createElement('div');
+    sessionDiv.className = 'session';
+
+    let header = document.createElement('h4');
+    header.innerText = day;
+    sessionDiv.appendChild(header);
+
+    let delBtn = document.createElement('button');
+    delBtn.innerText = 'Delete Day';
+    delBtn.className = 'delete-day';
+    delBtn.onclick = ()=>deleteSession(day);
+    sessionDiv.appendChild(delBtn);
+
+    let trades = allSessions[day];
+
+    // Strategy-wise stats for this day
+    let strategyStats = {};
+    trades.forEach(t=>{
+      if(!strategyStats[t.strategy]) strategyStats[t.strategy] = {win:0, loss:0};
+      if(!cumulativeStats[t.strategy]) cumulativeStats[t.strategy] = {win:0, loss:0};
+      t.result==='win'?strategyStats[t.strategy].win++:strategyStats[t.strategy].loss++;
+      t.result==='win'?cumulativeStats[t.strategy].win++:cumulativeStats[t.strategy].loss++;
+    });
+
+    // Display strategy stats for this day
+    let statsDiv = document.createElement('div');
+    for(let strat in strategyStats){
+      let s = strategyStats[strat];
+      statsDiv.innerText += `${strat}: Wins ${s.win} | Losses ${s.loss}\n`;
+    }
+    statsDiv.style.whiteSpace = 'pre-line';
+    statsDiv.style.marginBottom = '5px';
+    sessionDiv.appendChild(statsDiv);
+
+    // Show trades
+    let ul = document.createElement('ul');
+    trades.forEach(t=>{
+      let li = document.createElement('li');
+      li.innerText = `${t.date} | ${t.strategy} | ${t.result} | Rules: ${t.rules} | Reason: ${t.reason}`;
+      li.className = t.result==='win'?'win':'loss';
+      ul.appendChild(li);
+
+      t.result==='win'?totalWins++:totalLosses++;
+    });
+    sessionDiv.appendChild(ul);
+    sessionsDiv.appendChild(sessionDiv);
+  }
+
+  // Display cumulative strategy stats
+  const strategyAllDiv = document.getElementById('strategyStatsAll');
+  let text = '';
+  for(let strat in cumulativeStats){
+    let s = cumulativeStats[strat];
+    text += `${strat}: Wins ${s.win} | Losses ${s.loss}\n`;
+  }
+  strategyAllDiv.innerText = text;
+
+  const total = totalWins + totalLosses;
+  const winRate = total?((totalWins/total)*100).toFixed(1):0;
+  document.getElementById('stats').innerText = `Wins: ${totalWins} | Losses: ${totalLosses} | Win Rate: ${winRate}%`;
+}
+
+render();
+</script>
+</body>
+</html>
